@@ -96,7 +96,10 @@ display_df = pivoted[
         'Cost_Variance',
     ]
 ].reset_index()
-st.dataframe(display_df.style.format("{:,.2f}"))
+numeric_cols = display_df.select_dtypes(
+    include=['float64', 'int64', 'float32', 'int32']
+).columns
+st.dataframe(display_df.style.format("{:,.2f}", subset=numeric_cols))
 
 # 5. Chart Visualization
 st.subheader('Variance Attribution by SKU')
