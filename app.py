@@ -11,25 +11,35 @@ st.set_page_config(
 st.title('📊 Hardware SKU & Gross Margin PVM Variance Engine')
 st.markdown(
     'Automating Price-Volume-Mix (PVM) variance attribution for hardware'
-    ' product lines with hybrid AI and automated commentary.'
+    ' product lines with hybrid AI and custom data support.'
 )
 
-# Sidebar Configuration for Free Live AI Option
+# Sidebar Configuration for File Upload & Live AI
 with st.sidebar:
   st.header('Configuration')
+
+  # CSV Uploader Widget
+  st.subheader('1. Data Input')
+  uploaded_file = st.file_uploader(
+      'Upload Custom SKU CSV',
+      type=['csv'],
+      help='Upload a CSV with columns: SKU, Period, Units_Sold, Unit_Price, Unit_Cost',
+  )
+
+  st.markdown('---')
+  st.subheader('2. AI Configuration')
   st.markdown(
-      '**Want live AI generation?** Get a free API key at [console.groq.com](https://console.groq.com) and paste it below.'
+      '**Want live AI commentary?** Paste your free Groq API key below (leave'
+      ' blank for automated fallback).'
   )
   groq_api_key = st.text_input(
       'Groq API Key (Optional)',
       type='password',
-      help='Leave blank to use built-in automated fallback commentary.',
-  )
-  st.info(
-      'If left blank, the app runs on its built-in smart analysis engine instantly.'
+      help='Get a free key at console.groq.com',
   )
 
-# 1. Default sample data generator
+
+# 1. Default sample data generator or Custom CSV Loader
 @st.cache_data
 def get_default_data():
   data = {
@@ -49,35 +59,52 @@ def get_default_data():
   return pd.DataFrame(data)
 
 
-df = get_default_data()
+if uploaded_file is not None:
+  try:
+    df = pd.read_csv(uploaded_file)
+    st.sidebar.success('Custom CSV loaded successfully!')
+  except Exception as e:
+    st.sidebar.error(f'Error reading CSV: {e}')
+    df = get_default_data()
+else:
+  df = get_default_data()
 
 # 2. Calculation Engine
-pivoted = df.pivot(
-    index='SKU',
-    columns='Period',
-    values=['Units_Sold', 'Unit_Price', 'Unit_Cost'],
-)
-pivoted.columns = [f'{col}_{period}' for col, period in pivoted.columns]
-pivoted = pivoted.fillna(0)
+try:
+  pivoted = df.pivot(
+      index='SKU',
+      columns='Period',
+      values=['Units_Sold', 'Unit_Price', 'Unit_Cost'],
+  )
+  pivoted.columns = [f'{col}_{period}' for col, period in pivoted.columns]
+  pivoted = pivoted.fillna(0)
 
-pivoted['GP_Budget'] = pivoted['Units_Sold_Budget'] * (
-    pivoted['Unit_Price_Budget'] - pivoted['Unit_Cost_Budget']
-)
-pivoted['GP_Actual'] = pivoted['Units_Sold_Actual'] * (
-    pivoted['Unit_Price_Actual'] - pivoted['Unit_Cost_Actual']
-)
-pivoted['GP_Variance'] = pivoted['GP_Actual'] - pivoted['GP_Budget']
+  pivoted['GP_Budget'] = pivoted['Units_Sold_Budget'] * (
+      pivoted['Unit_Price_Budget'] - pivoted['Unit_Cost_Budget']
+  )
+  pivoted['GP_Actual'] = pivoted['Units_Sold_Actual'] * (
+      pivoted['Unit_Price_Actual'] - pivoted['Unit_Cost_Actual']
+  )
+  pivoted['GP_Variance'] = pivoted['GP_Actual'] - pivoted['GP_Budget']
 
-budget_gm_per_unit = pivoted['Unit_Price_Budget'] - pivoted['Unit_Cost_Budget']
-pivoted['Volume_Variance'] = (
-    pivoted['Units_Sold_Actual'] - pivoted['Units_Sold_Budget']
-) * budget_gm_per_unit
-pivoted['Price_Variance'] = (
-    pivoted['Unit_Price_Actual'] - pivoted['Unit_Price_Budget']
-) * pivoted['Units_Sold_Actual']
-pivoted['Cost_Variance'] = (
-    pivoted['Unit_Cost_Budget'] - pivoted['Unit_Cost_Actual']
-) * pivoted['Units_Sold_Actual']
+  budget_gm_per_unit = pivoted['Unit_Price_Budget'] - pivoted['Unit_Cost_Budget']
+  pivoted['Volume_Variance'] = (
+      pivoted['Units_Sold_Actual'] - pivoted['Units_Sold_Budget']
+  ) * budget_gm_per_unit
+  pivoted['Price_Variance'] = (
+      pivoted['Unit_Price_Actual'] - pivoted['Unit_Price_Budget']
+  ) * pivoted['Units_Sold_Actual']
+  pivoted['Cost_Variance'] = (
+      pivoted['Unit_Cost_Budget'] - pivoted['Unit_Cost_Actual']
+  ) * pivoted['Units_Sold_Actual']
+
+except Exception as calc_error:
+  st.error(
+      f'Calculation Error: Please ensure your CSV contains exact columns for'
+      f' SKU, Period (Budget/Actual), Units_Sold, Unit_Price, and Unit_Cost.'
+      f' Details: {calc_error}'
+  )
+  st.stop()
 
 # 3. Display Metrics Summary
 col1, col2, col3 = st.columns(3)
@@ -134,7 +161,7 @@ st.plotly_chart(fig, use_container_width=True)
 st.divider()
 
 
-# 6. Hybrid Commentary Engine (Live Free AI with Fallback)
+# 6. Hybrid Commentary Engine
 def generate_fallback_commentary(df_pivoted):
   total_var = df_pivoted['GP_Variance'].sum()
   total_vol = df_pivoted['Volume_Variance'].sum()
@@ -161,7 +188,6 @@ if st.button('Generate Executive Summary'):
   with st.spinner('Compiling executive board notes...'):
     if groks_key := groq_api_key:
       try:
-        # Use Groq's free tier with Llama 3 via OpenAI-compatible client
         client = openai.OpenAI(
             api_key=groks_key, base_url='https://api.groq.com/openai/v1'
         )
@@ -179,16 +205,13 @@ if st.button('Generate Executive Summary'):
             messages=[{'role': 'user', 'content': prompt}],
             temperature=0.3,
         )
-        st.success('Live AI Commentary Generated via Llama-3 (Groq)!')
+        st.success('Live AI Commentary Generated via Llama-3.1 (Groq)!')
         st.markdown(response.choices[0].message.content)
       except Exception as e:
         st.warning(
             f'API call failed ({e}). Falling back to built-in smart summary:'
         )
-        st.markdown(
-            generate_fallback_commentary(pivoted.reset_index())
-        )
+        st.markdown(generate_fallback_commentary(pivoted.reset_index()))
     else:
-      # Zero-config fallback mode
       st.success('Executive commentary compiled successfully (Fallback Mode)!')
       st.markdown(generate_fallback_commentary(pivoted.reset_index()))
