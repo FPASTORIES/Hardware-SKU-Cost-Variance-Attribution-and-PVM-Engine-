@@ -10,16 +10,32 @@ st.set_page_config(
 
 st.title('📊 Hardware SKU & Gross Margin PVM Variance Engine')
 st.markdown(
-    'Automating Price-Volume-Mix (PVM) variance attribution for hardware'
-    ' product lines with hybrid AI and custom data support.'
+    'Enterprise-grade Price-Volume-Mix (PVM) variance attribution with live'
+    ' sensitivity modeling and AI commentary.'
 )
 
-# Sidebar Configuration for File Upload & Live AI
+# Sidebar Configuration
 with st.sidebar:
-  st.header('Configuration')
+  st.header('Configuration & Modeling')
 
-  # CSV Uploader Widget
-  st.subheader('1. Data Input')
+  # 1. Preset Scenario Buttons
+  st.subheader('1. Scenario Presets')
+  col_p1, col_p2 = st.columns(2)
+  load_standard = col_p1.button('Standard MBR')
+  load_stress = col_p2.button('Cost Spike Stress')
+
+  if 'scenario' not in st.session_state:
+    st.session_state.scenario = 'Standard'
+
+  if load_standard:
+    st.session_state.scenario = 'Standard'
+  if load_stress:
+    st.session_state.scenario = 'Cost Spike Stress'
+
+  st.markdown('---')
+
+  # 2. Data Input
+  st.subheader('2. Data Input')
   uploaded_file = st.file_uploader(
       'Upload Custom SKU CSV',
       type=['csv'],
@@ -27,11 +43,30 @@ with st.sidebar:
   )
 
   st.markdown('---')
-  st.subheader('2. AI Configuration')
-  st.markdown(
-      '**Want live AI commentary?** Paste your free Groq API key below (leave'
-      ' blank for automated fallback).'
+
+  # 3. Interactive Sensitivity Sliders
+  st.subheader('3. Sensitivity Sliders')
+  cost_inflation = st.slider(
+      'COGS Inflation Adjustment (%)',
+      min_value=-20,
+      max_value=50,
+      value=0,
+      step=5,
+      help='Simulate component cost increases or savings across all SKUs.',
   )
+  price_adjustment = st.slider(
+      'ASP Adjustment (%)',
+      min_value=-10,
+      max_value=20,
+      value=0,
+      step=1,
+      help='Simulate enterprise pricing shifts or discounting.',
+  )
+
+  st.markdown('---')
+
+  # 4. AI Configuration
+  st.subheader('4. AI Configuration')
   groq_api_key = st.text_input(
       'Groq API Key (Optional)',
       type='password',
@@ -39,23 +74,39 @@ with st.sidebar:
   )
 
 
-# 1. Default sample data generator or Custom CSV Loader
+# 1. Dataset Generator
 @st.cache_data
-def get_default_data():
-  data = {
-      'SKU': [
-          'DGX-H100-Node',
-          'DGX-H100-Node',
-          'HGX-B200-Sys',
-          'HGX-B200-Sys',
-          'Quantum-2-Switch',
-          'Quantum-2-Switch',
-      ],
-      'Period': ['Budget', 'Actual', 'Budget', 'Actual', 'Budget', 'Actual'],
-      'Units_Sold': [1200, 1400, 450, 400, 3000, 2800],
-      'Unit_Price': [350000, 345000, 500000, 510000, 15000, 15500],
-      'Unit_Cost': [210000, 215000, 300000, 295000, 9000, 9200],
-  }
+def get_default_data(scenario='Standard'):
+  if scenario == 'Cost Spike Stress':
+    data = {
+        'SKU': [
+            'DGX-H100-Node',
+            'DGX-H100-Node',
+            'HGX-B200-Sys',
+            'HGX-B200-Sys',
+            'Quantum-2-Switch',
+            'Quantum-2-Switch',
+        ],
+        'Period': ['Budget', 'Actual', 'Budget', 'Actual', 'Budget', 'Actual'],
+        'Units_Sold': [1200, 1300, 450, 380, 3000, 2600],
+        'Unit_Price': [350000, 345000, 500000, 505000, 15000, 15200],
+        'Unit_Cost': [210000, 245000, 300000, 330000, 9000, 10500],
+    }
+  else:
+    data = {
+        'SKU': [
+            'DGX-H100-Node',
+            'DGX-H100-Node',
+            'HGX-B200-Sys',
+            'HGX-B200-Sys',
+            'Quantum-2-Switch',
+            'Quantum-2-Switch',
+        ],
+        'Period': ['Budget', 'Actual', 'Budget', 'Actual', 'Budget', 'Actual'],
+        'Units_Sold': [1200, 1400, 450, 400, 3000, 2800],
+        'Unit_Price': [350000, 345000, 500000, 510000, 15000, 15500],
+        'Unit_Cost': [210000, 215000, 300000, 295000, 9000, 9200],
+    }
   return pd.DataFrame(data)
 
 
@@ -65,9 +116,19 @@ if uploaded_file is not None:
     st.sidebar.success('Custom CSV loaded successfully!')
   except Exception as e:
     st.sidebar.error(f'Error reading CSV: {e}')
-    df = get_default_data()
+    df = get_default_data(st.session_state.scenario)
 else:
-  df = get_default_data()
+  df = get_default_data(st.session_state.scenario)
+
+# Apply Sensitivity Sliders to Actuals
+if cost_inflation != 0 or price_adjustment != 0:
+  actual_mask = df['Period'] == 'Actual'
+  df.loc[actual_mask, 'Unit_Cost'] = df.loc[
+      actual_mask, 'Unit_Cost'
+  ] * (1 + cost_inflation / 100.0)
+  df.loc[actual_mask, 'Unit_Price'] = df.loc[
+      actual_mask, 'Unit_Price'
+  ] * (1 + price_adjustment / 100.0)
 
 # 2. Calculation Engine
 try:
@@ -100,9 +161,8 @@ try:
 
 except Exception as calc_error:
   st.error(
-      f'Calculation Error: Please ensure your CSV contains exact columns for'
-      f' SKU, Period (Budget/Actual), Units_Sold, Unit_Price, and Unit_Cost.'
-      f' Details: {calc_error}'
+      f'Calculation Error: Please verify your CSV columns match SKU, Period,'
+      f' Units_Sold, Unit_Price, Unit_Cost. Details: {calc_error}'
   )
   st.stop()
 
@@ -161,7 +221,7 @@ st.plotly_chart(fig, use_container_width=True)
 st.divider()
 
 
-# 6. Hybrid Commentary Engine
+# 6. Hybrid Commentary Engine & Report Export
 def generate_fallback_commentary(df_pivoted):
   total_var = df_pivoted['GP_Variance'].sum()
   total_vol = df_pivoted['Volume_Variance'].sum()
@@ -171,20 +231,25 @@ def generate_fallback_commentary(df_pivoted):
   bottom_sku = df_pivoted.loc[df_pivoted['GP_Variance'].idxmin()]['SKU']
   direction = 'expanded' if total_var >= 0 else 'compressed'
 
-  return f"""
-    ### 📋 Executive Summary (Automated Fallback Mode)
-    * **Overall Performance:** Total gross profit {direction} by **${abs(total_var):,.0f}** relative to budget.
-    * **Driver Breakdown:** Volume impact contributed **${total_vol:,.0f}**, price realization yielded **${total_price:,.0f}**, and COGS variance impacted margins by **${total_cost:,.0f}**.
-    * **SKU Highlights:** **{top_sku}** led positive variances, while **{bottom_sku}** faced cost headwinds requiring close review.
-    """
+  return f"""### 📋 Executive Summary (Automated Analysis)
+* **Overall Performance:** Total gross profit {direction} by **${abs(total_var):,.0f}** relative to budget.
+* **Driver Breakdown:** Volume impact contributed **${total_vol:,.0f}**, price realization yielded **${total_price:,.0f}**, and COGS variance impacted margins by **${total_cost:,.0f}**.
+* **SKU Highlights:** **{top_sku}** led positive variances, while **{bottom_sku}** faced cost headwinds requiring close review.
+"""
 
 
-st.subheader('📝 Executive Board Commentary')
+st.subheader('📝 Executive Board Commentary & Export')
 st.markdown(
-    'Generate professional narrative commentary derived from financial variance data.'
+    'Generate professional narrative commentary and download the report for'
+    ' leadership review.'
 )
 
-if st.button('Generate Executive Summary'):
+if 'commentary_text' not in st.session_state:
+  st.session_state.commentary_text = ''
+
+col_btn1, col_btn2 = st.columns([2, 2])
+
+if col_btn1.button('Generate Executive Summary'):
   with st.spinner('Compiling executive board notes...'):
     if groks_key := groq_api_key:
       try:
@@ -205,13 +270,30 @@ if st.button('Generate Executive Summary'):
             messages=[{'role': 'user', 'content': prompt}],
             temperature=0.3,
         )
+        st.session_state.commentary_text = (
+            response.choices[0].message.content
+        )
         st.success('Live AI Commentary Generated via Llama-3.1 (Groq)!')
-        st.markdown(response.choices[0].message.content)
       except Exception as e:
         st.warning(
             f'API call failed ({e}). Falling back to built-in smart summary:'
         )
-        st.markdown(generate_fallback_commentary(pivoted.reset_index()))
+        st.session_state.commentary_text = generate_fallback_commentary(
+            pivoted.reset_index()
+        )
     else:
-      st.success('Executive commentary compiled successfully (Fallback Mode)!')
-      st.markdown(generate_fallback_commentary(pivoted.reset_index()))
+      st.session_state.commentary_text = generate_fallback_commentary(
+          pivoted.reset_index()
+      )
+      st.success('Executive commentary compiled successfully!')
+
+if st.session_state.commentary_text:
+  st.markdown(st.session_state.commentary_text)
+
+  # Download Report Button
+  st.download_button(
+      label='📥 Download Executive Report (.md)',
+      data=st.session_state.commentary_text,
+      file_name='hardware_pvm_executive_report.md',
+      mime='text/markdown',
+  )
