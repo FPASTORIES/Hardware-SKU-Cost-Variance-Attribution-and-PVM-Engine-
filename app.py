@@ -175,7 +175,7 @@ if st.button('Generate Executive Summary'):
                 Write a concise, professional executive board commentary highlighting overall performance, top/bottom SKU drivers, and Volume vs. Price vs. Cost impact. Keep it structured for C-level executives.
                 """
         response = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
+            model='llama-3.1-70b-versatile',
             messages=[{'role': 'user', 'content': prompt}],
             temperature=0.3,
         )
